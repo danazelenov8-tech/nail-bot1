@@ -4,12 +4,12 @@ import os
 import asyncio
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from aiogram import Bot, Dispatcher, types, executor
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters.state import State, StatesGroup
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from aiogram.contrib.middlewares.logging import LoggingMiddleware
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
 
 # Загружаем переменные
 load_dotenv()
@@ -42,8 +42,7 @@ LUNCH_END = 14
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
-dp = Dispatcher(bot, storage=storage)
-dp.middleware.setup(LoggingMiddleware())
+dp = Dispatcher(storage=storage)
 
 # ========== СОСТОЯНИЯ ==========
 class BookingStates(StatesGroup):
@@ -263,21 +262,23 @@ async def reminder_check():
 # ========== КЛАВИАТУРЫ ==========
 
 def main_keyboard():
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.row("📅 Записаться", "💰 Цены")
-    kb.row("📍 Контакты", "📋 Мои записи")
-    kb.row("🎁 Мои бонусы")
+    kb = ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text="📅 Записаться"), KeyboardButton(text="💰 Цены")],
+        [KeyboardButton(text="📍 Контакты"), KeyboardButton(text="📋 Мои записи")],
+        [KeyboardButton(text="🎁 Мои бонусы")]
+    ], resize_keyboard=True)
     return kb
 
 def services_keyboard():
-    kb = InlineKeyboardMarkup(row_width=1)
+    kb = InlineKeyboardMarkup(inline_keyboard=[])
     for s in cursor.execute("SELECT id, name, price FROM services").fetchall():
-        kb.add(InlineKeyboardButton(f"{s[1]} - {s[2]}₽", callback_data=f"srv_{s[0]}"))
+        kb.inline_keyboard.append([InlineKeyboardButton(text=f"{s[1]} - {s[2]}₽", callback_data=f"srv_{s[0]}")])
     return kb
 
 def dates_keyboard():
-    kb = InlineKeyboardMarkup(row_width=3)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[]])
     today = datetime.now()
+    row = []
     for i in range(14):
         date = today + timedelta(days=i)
         date_str = date.strftime("%d.%m.%Y")
@@ -285,51 +286,62 @@ def dates_keyboard():
         text = date.strftime("%d %b")
         if not slots:
             text = "❌ " + text
-        kb.add(InlineKeyboardButton(text, callback_data=f"dat_{date_str}"))
+        row.append(InlineKeyboardButton(text=text, callback_data=f"dat_{date_str}"))
+        if len(row) == 3:
+            kb.inline_keyboard.append(row)
+            row = []
+    if row:
+        kb.inline_keyboard.append(row)
     return kb
 
 def time_keyboard(slots):
-    kb = InlineKeyboardMarkup(row_width=3)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[]])
+    row = []
     for s in slots[:12]:
-        kb.add(InlineKeyboardButton(s, callback_data=f"tim_{s}"))
+        row.append(InlineKeyboardButton(text=s, callback_data=f"tim_{s}"))
+        if len(row) == 3:
+            kb.inline_keyboard.append(row)
+            row = []
+    if row:
+        kb.inline_keyboard.append(row)
     return kb
 
 def confirm_keyboard():
-    kb = InlineKeyboardMarkup()
-    kb.row(
-        InlineKeyboardButton("✅ Да", callback_data="conf_yes"),
-        InlineKeyboardButton("❌ Нет", callback_data="conf_no")
-    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Да", callback_data="conf_yes"),
+         InlineKeyboardButton(text="❌ Нет", callback_data="conf_no")]
+    ])
     return kb
 
 def admin_keyboard():
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.row(
-        InlineKeyboardButton("📊 Статистика", callback_data="adm_stats"),
-        InlineKeyboardButton("📅 Сегодня", callback_data="adm_today")
-    )
-    kb.row(
-        InlineKeyboardButton("📋 Расписание", callback_data="adm_sched"),
-        InlineKeyboardButton("✏️ Изменить день", callback_data="adm_edit")
-    )
-    kb.row(
-        InlineKeyboardButton("🚫 Отпуск", callback_data="adm_vac"),
-        InlineKeyboardButton("✅ Убрать отпуск", callback_data="adm_rem")
-    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📊 Статистика", callback_data="adm_stats"),
+         InlineKeyboardButton(text="📅 Сегодня", callback_data="adm_today")],
+        [InlineKeyboardButton(text="📋 Расписание", callback_data="adm_sched"),
+         InlineKeyboardButton(text="✏️ Изменить день", callback_data="adm_edit")],
+        [InlineKeyboardButton(text="🚫 Отпуск", callback_data="adm_vac"),
+         InlineKeyboardButton(text="✅ Убрать отпуск", callback_data="adm_rem")]
+    ])
     return kb
 
 def days_keyboard():
-    kb = InlineKeyboardMarkup(row_width=4)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[]])
     days = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+    row = []
     for i, d in enumerate(days):
-        kb.insert(InlineKeyboardButton(d, callback_data=f"day_{i}"))
-    kb.row(InlineKeyboardButton("🔙 Назад", callback_data="adm_back"))
+        row.append(InlineKeyboardButton(text=d, callback_data=f"day_{i}"))
+        if len(row) == 4:
+            kb.inline_keyboard.append(row)
+            row = []
+    if row:
+        kb.inline_keyboard.append(row)
+    kb.inline_keyboard.append([InlineKeyboardButton(text="🔙 Назад", callback_data="adm_back")])
     return kb
 
 # ========== ОБРАБОТЧИКИ ==========
 
-@dp.message_handler(commands=['start'])
-async def start(message: types.Message):
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message):
     cursor.execute("INSERT OR IGNORE INTO clients (tg_id, name) VALUES (?, ?)",
                   (message.from_user.id, message.from_user.first_name))
     conn.commit()
@@ -344,23 +356,23 @@ async def start(message: types.Message):
         reply_markup=main_keyboard()
     )
 
-@dp.message_handler(lambda m: m.text == "💰 Цены")
-async def prices(message: types.Message):
+@dp.message(F.text == "💰 Цены")
+async def cmd_prices(message: types.Message):
     text = "💅 Наши услуги:\n\n"
     for s in cursor.execute("SELECT name, price FROM services").fetchall():
         text += f"• {s[0]}: {s[1]}₽\n"
     await message.answer(text)
 
-@dp.message_handler(lambda m: m.text == "📍 Контакты")
-async def contacts(message: types.Message):
+@dp.message(F.text == "📍 Контакты")
+async def cmd_contacts(message: types.Message):
     await message.answer(
         "📍 Адрес: ул. Ленина, 15\n"
         "📞 Телефон: +7 (999) 123-45-67\n\n" +
         get_schedule_text()
     )
 
-@dp.message_handler(lambda m: m.text == "📋 Мои записи")
-async def my_apps(message: types.Message):
+@dp.message(F.text == "📋 Мои записи")
+async def cmd_my_apps(message: types.Message):
     apps = cursor.execute('''
         SELECT a.date, a.time, s.name, a.price, a.id
         FROM appointments a
@@ -374,17 +386,17 @@ async def my_apps(message: types.Message):
         await message.answer("У вас нет активных записей")
         return
     
-    kb = InlineKeyboardMarkup()
+    kb = InlineKeyboardMarkup(inline_keyboard=[])
     for a in apps:
-        kb.add(InlineKeyboardButton(
-            f"{a[0]} {a[1]} - {a[2]}",
+        kb.inline_keyboard.append([InlineKeyboardButton(
+            text=f"{a[0]} {a[1]} - {a[2]}",
             callback_data=f"app_{a[4]}"
-        ))
+        )])
     
     await message.answer("Ваши записи:", reply_markup=kb)
 
-@dp.message_handler(lambda m: m.text == "🎁 Мои бонусы")
-async def bonuses(message: types.Message):
+@dp.message(F.text == "🎁 Мои бонусы")
+async def cmd_bonuses(message: types.Message):
     visits, spent = get_client_bonuses(message.from_user.id)
     next_discount = 10 - (visits % 10)
     
@@ -397,57 +409,57 @@ async def bonuses(message: types.Message):
     )
     await message.answer(text)
 
-@dp.message_handler(lambda m: m.text == "📅 Записаться")
-async def book_start(message: types.Message, state: FSMContext):
-    await state.finish()
+@dp.message(F.text == "📅 Записаться")
+async def cmd_book_start(message: types.Message, state: FSMContext):
+    await state.clear()
     await message.answer("Выберите услугу:", reply_markup=services_keyboard())
-    await BookingStates.service.set()
+    await state.set_state(BookingStates.service)
 
 # ========== ПРОЦЕСС ЗАПИСИ ==========
 
-@dp.callback_query_handler(lambda c: c.data.startswith('srv_'), state=BookingStates.service)
-async def book_service(call: types.CallbackQuery, state: FSMContext):
-    service_id = int(call.data.split('_')[1])
+@dp.callback_query(lambda c: c.data.startswith('srv_'), BookingStates.service)
+async def process_service(callback: types.CallbackQuery, state: FSMContext):
+    service_id = int(callback.data.split('_')[1])
     await state.update_data(service_id=service_id)
     
     service = cursor.execute("SELECT name, price FROM services WHERE id = ?", (service_id,)).fetchone()
     await state.update_data(service_name=service[0], service_price=service[1])
     
-    await call.message.edit_text("Выберите дату:", reply_markup=dates_keyboard())
-    await BookingStates.date.set()
-    await call.answer()
+    await callback.message.edit_text("Выберите дату:", reply_markup=dates_keyboard())
+    await state.set_state(BookingStates.date)
+    await callback.answer()
 
-@dp.callback_query_handler(lambda c: c.data.startswith('dat_'), state=BookingStates.date)
-async def book_date(call: types.CallbackQuery, state: FSMContext):
-    date = call.data.split('_')[1]
+@dp.callback_query(lambda c: c.data.startswith('dat_'), BookingStates.date)
+async def process_date(callback: types.CallbackQuery, state: FSMContext):
+    date = callback.data.split('_')[1]
     slots = get_free_slots(date)
     
     if not slots:
-        await call.message.edit_text("Нет свободных слотов. Выберите другую дату:", 
+        await callback.message.edit_text("Нет свободных слотов. Выберите другую дату:", 
                                     reply_markup=dates_keyboard())
-        await call.answer()
+        await callback.answer()
         return
     
     await state.update_data(date=date)
-    await call.message.edit_text("Выберите время:", reply_markup=time_keyboard(slots))
-    await BookingStates.time.set()
-    await call.answer()
+    await callback.message.edit_text("Выберите время:", reply_markup=time_keyboard(slots))
+    await state.set_state(BookingStates.time)
+    await callback.answer()
 
-@dp.callback_query_handler(lambda c: c.data.startswith('tim_'), state=BookingStates.time)
-async def book_time(call: types.CallbackQuery, state: FSMContext):
-    await state.update_data(time=call.data.split('_')[1])
-    await call.message.edit_text("Введите ваше имя:")
-    await BookingStates.name.set()
-    await call.answer()
+@dp.callback_query(lambda c: c.data.startswith('tim_'), BookingStates.time)
+async def process_time(callback: types.CallbackQuery, state: FSMContext):
+    await state.update_data(time=callback.data.split('_')[1])
+    await callback.message.edit_text("Введите ваше имя:")
+    await state.set_state(BookingStates.name)
+    await callback.answer()
 
-@dp.message_handler(state=BookingStates.name)
-async def book_name(message: types.Message, state: FSMContext):
+@dp.message(BookingStates.name)
+async def process_name(message: types.Message, state: FSMContext):
     await state.update_data(name=message.text)
     await message.answer("Введите номер телефона:")
-    await BookingStates.phone.set()
+    await state.set_state(BookingStates.phone)
 
-@dp.message_handler(state=BookingStates.phone)
-async def book_phone(message: types.Message, state: FSMContext):
+@dp.message(BookingStates.phone)
+async def process_phone(message: types.Message, state: FSMContext):
     await state.update_data(phone=message.text)
     data = await state.get_data()
     
@@ -462,17 +474,17 @@ async def book_phone(message: types.Message, state: FSMContext):
         f"✅ После подтверждения придёт напоминание",
         reply_markup=confirm_keyboard()
     )
-    await BookingStates.confirm.set()
+    await state.set_state(BookingStates.confirm)
 
-@dp.callback_query_handler(lambda c: c.data == "conf_yes", state=BookingStates.confirm)
-async def book_confirm(call: types.CallbackQuery, state: FSMContext):
+@dp.callback_query(lambda c: c.data == "conf_yes", BookingStates.confirm)
+async def process_confirm(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     
-    client = cursor.execute("SELECT id FROM clients WHERE tg_id = ?", (call.from_user.id,)).fetchone()
+    client = cursor.execute("SELECT id FROM clients WHERE tg_id = ?", (callback.from_user.id,)).fetchone()
     
     if not client:
         cursor.execute("INSERT INTO clients (tg_id, name, phone) VALUES (?, ?, ?)",
-                      (call.from_user.id, data['name'], data['phone']))
+                      (callback.from_user.id, data['name'], data['phone']))
         client_id = cursor.lastrowid
     else:
         client_id = client[0]
@@ -485,7 +497,7 @@ async def book_confirm(call: types.CallbackQuery, state: FSMContext):
     
     update_client_stats(client_id, data['service_price'])
     
-    await call.message.edit_text(
+    await callback.message.edit_text(
         "✅ ЗАПИСЬ ПОДТВЕРЖДЕНА!\n\n"
         f"📍 {data['date']} в {data['time']}\n"
         f"💅 {data['service_name']}\n"
@@ -507,31 +519,32 @@ async def book_confirm(call: types.CallbackQuery, state: FSMContext):
         except:
             pass
     
-    await state.finish()
-    await call.answer()
+    await state.clear()
+    await callback.answer()
 
-@dp.callback_query_handler(lambda c: c.data == "conf_no", state=BookingStates.confirm)
-async def book_cancel(call: types.CallbackQuery, state: FSMContext):
-    await call.message.edit_text("Запись отменена")
-    await state.finish()
-    await call.answer()
+@dp.callback_query(lambda c: c.data == "conf_no", BookingStates.confirm)
+async def process_cancel(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.edit_text("Запись отменена")
+    await state.clear()
+    await callback.answer()
 
 # ========== ОТМЕНА ЗАПИСИ ==========
 
-@dp.callback_query_handler(lambda c: c.data.startswith('app_'))
-async def cancel_app(call: types.CallbackQuery):
-    app_id = int(call.data.split('_')[1])
+@dp.callback_query(lambda c: c.data.startswith('app_'))
+async def cancel_app(callback: types.CallbackQuery):
+    app_id = int(callback.data.split('_')[1])
     
-    kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("✅ Подтвердить отмену", callback_data=f"del_{app_id}"))
-    kb.add(InlineKeyboardButton("🔙 Назад", callback_data="back_to_apps"))
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Подтвердить отмену", callback_data=f"del_{app_id}")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_apps")]
+    ])
     
-    await call.message.edit_text("Отменить запись?", reply_markup=kb)
-    await call.answer()
+    await callback.message.edit_text("Отменить запись?", reply_markup=kb)
+    await callback.answer()
 
-@dp.callback_query_handler(lambda c: c.data.startswith('del_'))
-async def confirm_cancel(call: types.CallbackQuery):
-    app_id = int(call.data.split('_')[1])
+@dp.callback_query(lambda c: c.data.startswith('del_'))
+async def confirm_cancel(callback: types.CallbackQuery):
+    app_id = int(callback.data.split('_')[1])
     
     app_info = cursor.execute('''
         SELECT c.name, c.phone, a.date, a.time
@@ -543,7 +556,7 @@ async def confirm_cancel(call: types.CallbackQuery):
     cursor.execute("UPDATE appointments SET status = 'cancelled' WHERE id = ?", (app_id,))
     conn.commit()
     
-    await call.message.edit_text("✅ Запись отменена")
+    await callback.message.edit_text("✅ Запись отменена")
     
     for admin_id in ADMINS:
         try:
@@ -557,10 +570,10 @@ async def confirm_cancel(call: types.CallbackQuery):
         except:
             pass
     
-    await call.answer()
+    await callback.answer()
 
-@dp.callback_query_handler(lambda c: c.data == "back_to_apps")
-async def back_to_apps(call: types.CallbackQuery):
+@dp.callback_query(lambda c: c.data == "back_to_apps")
+async def back_to_apps(callback: types.CallbackQuery):
     apps = cursor.execute('''
         SELECT a.date, a.time, s.name, a.price, a.id
         FROM appointments a
@@ -568,27 +581,30 @@ async def back_to_apps(call: types.CallbackQuery):
         JOIN services s ON a.service_id = s.id
         WHERE c.tg_id = ? AND a.status = 'active'
         ORDER BY a.date
-    ''', (call.from_user.id,)).fetchall()
+    ''', (callback.from_user.id,)).fetchall()
     
-    kb = InlineKeyboardMarkup()
+    kb = InlineKeyboardMarkup(inline_keyboard=[])
     for a in apps:
-        kb.add(InlineKeyboardButton(f"{a[0]} {a[1]} - {a[2]}", callback_data=f"app_{a[4]}"))
+        kb.inline_keyboard.append([InlineKeyboardButton(
+            text=f"{a[0]} {a[1]} - {a[2]}", 
+            callback_data=f"app_{a[4]}"
+        )])
     
-    await call.message.edit_text("Ваши записи:", reply_markup=kb)
-    await call.answer()
+    await callback.message.edit_text("Ваши записи:", reply_markup=kb)
+    await callback.answer()
 
 # ========== АДМИНКА ==========
 
-@dp.message_handler(commands=['admin'])
-async def admin_menu(message: types.Message):
+@dp.message(Command("admin"))
+async def cmd_admin(message: types.Message):
     if message.from_user.id not in ADMINS:
         await message.answer("⛔ Доступ запрещен")
         return
     
     await message.answer("🔧 ПАНЕЛЬ АДМИНИСТРАТОРА", reply_markup=admin_keyboard())
 
-@dp.callback_query_handler(lambda c: c.data == "adm_stats")
-async def admin_stats(call: types.CallbackQuery):
+@dp.callback_query(lambda c: c.data == "adm_stats")
+async def admin_stats(callback: types.CallbackQuery):
     today = datetime.now().strftime("%d.%m.%Y")
     month_start = datetime.now().replace(day=1).strftime("%d.%m.%Y")
     
@@ -611,13 +627,12 @@ async def admin_stats(call: types.CallbackQuery):
         f"👥 Всего клиентов: {total_clients}"
     )
     
-    await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup().add(
-        InlineKeyboardButton("🔙 Назад", callback_data="adm_back")
-    ))
-    await call.answer()
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="adm_back")]])
+    await callback.message.edit_text(text, reply_markup=kb)
+    await callback.answer()
 
-@dp.callback_query_handler(lambda c: c.data == "adm_today")
-async def admin_today(call: types.CallbackQuery):
+@dp.callback_query(lambda c: c.data == "adm_today")
+async def admin_today(callback: types.CallbackQuery):
     today = datetime.now().strftime("%d.%m.%Y")
     apps = cursor.execute('''
         SELECT a.time, c.name, c.phone, s.name
@@ -635,29 +650,24 @@ async def admin_today(call: types.CallbackQuery):
         for a in apps:
             text += f"⏰ {a[0]} - {a[1]}\n📞 {a[2]}\n💅 {a[3]}\n\n"
     
-    await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup().add(
-        InlineKeyboardButton("🔙 Назад", callback_data="adm_back")
-    ))
-    await call.answer()
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="adm_back")]])
+    await callback.message.edit_text(text, reply_markup=kb)
+    await callback.answer()
 
-@dp.callback_query_handler(lambda c: c.data == "adm_sched")
-async def admin_schedule(call: types.CallbackQuery):
-    await call.message.edit_text(
-        get_schedule_text(),
-        reply_markup=InlineKeyboardMarkup().add(
-            InlineKeyboardButton("🔙 Назад", callback_data="adm_back")
-        )
-    )
-    await call.answer()
+@dp.callback_query(lambda c: c.data == "adm_sched")
+async def admin_schedule(callback: types.CallbackQuery):
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="adm_back")]])
+    await callback.message.edit_text(get_schedule_text(), reply_markup=kb)
+    await callback.answer()
 
-@dp.callback_query_handler(lambda c: c.data == "adm_edit")
-async def admin_edit(call: types.CallbackQuery):
-    await call.message.edit_text("Выберите день:", reply_markup=days_keyboard())
-    await call.answer()
+@dp.callback_query(lambda c: c.data == "adm_edit")
+async def admin_edit(callback: types.CallbackQuery):
+    await callback.message.edit_text("Выберите день:", reply_markup=days_keyboard())
+    await callback.answer()
 
-@dp.callback_query_handler(lambda c: c.data.startswith('day_'))
-async def edit_day(call: types.CallbackQuery, state: FSMContext):
-    day = int(call.data.split('_')[1])
+@dp.callback_query(lambda c: c.data.startswith('day_'))
+async def process_edit_day(callback: types.CallbackQuery, state: FSMContext):
+    day = int(callback.data.split('_')[1])
     await state.update_data(edit_day=day)
     
     sched = cursor.execute("SELECT start_time, end_time, is_working FROM schedule WHERE day = ?", (day,)).fetchone()
@@ -668,11 +678,11 @@ async def edit_day(call: types.CallbackQuery, state: FSMContext):
     else:
         text = f"{days[day]}\nТекущее: Выходной\n\nВведите время (10:00-18:00) или 'выходной'"
     
-    await call.message.edit_text(text)
-    await ScheduleStates.edit_day.set()
-    await call.answer()
+    await callback.message.edit_text(text)
+    await state.set_state(ScheduleStates.edit_day)
+    await callback.answer()
 
-@dp.message_handler(state=ScheduleStates.edit_day)
+@dp.message(ScheduleStates.edit_day)
 async def save_schedule(message: types.Message, state: FSMContext):
     data = await state.get_data()
     day = data['edit_day']
@@ -694,19 +704,19 @@ async def save_schedule(message: types.Message, state: FSMContext):
         except:
             await message.answer("❌ Ошибка формата")
     
-    await state.finish()
+    await state.clear()
     await message.answer("Что дальше?", reply_markup=admin_keyboard())
 
-@dp.callback_query_handler(lambda c: c.data == "adm_vac")
-async def admin_vacation(call: types.CallbackQuery):
-    await call.message.edit_text(
+@dp.callback_query(lambda c: c.data == "adm_vac")
+async def admin_vacation(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
         "Введите даты отпуска (ДД.ММ.ГГГГ-ДД.ММ.ГГГГ):\n"
         "Пример: 01.06.2024-10.06.2024"
     )
-    await ScheduleStates.vacation.set()
-    await call.answer()
+    await state.set_state(ScheduleStates.vacation)
+    await callback.answer()
 
-@dp.message_handler(state=ScheduleStates.vacation)
+@dp.message(ScheduleStates.vacation)
 async def save_vacation(message: types.Message, state: FSMContext):
     try:
         dates = message.text.split('-')
@@ -721,59 +731,59 @@ async def save_vacation(message: types.Message, state: FSMContext):
     except:
         await message.answer("❌ Ошибка формата")
     
-    await state.finish()
+    await state.clear()
     await message.answer("Что дальше?", reply_markup=admin_keyboard())
 
-@dp.callback_query_handler(lambda c: c.data == "adm_rem")
-async def admin_remove(call: types.CallbackQuery):
+@dp.callback_query(lambda c: c.data == "adm_rem")
+async def admin_remove(callback: types.CallbackQuery):
     ex = cursor.execute("SELECT date_from, date_to FROM exceptions").fetchall()
     
     if not ex:
-        await call.message.edit_text(
-            "Нет активных исключений",
-            reply_markup=InlineKeyboardMarkup().add(
-                InlineKeyboardButton("🔙 Назад", callback_data="adm_back")
-            )
-        )
-        await call.answer()
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="adm_back")]])
+        await callback.message.edit_text("Нет активных исключений", reply_markup=kb)
+        await callback.answer()
         return
     
-    kb = InlineKeyboardMarkup()
+    kb = InlineKeyboardMarkup(inline_keyboard=[])
     for e in ex:
-        kb.add(InlineKeyboardButton(f"{e[0]} - {e[1]}", callback_data=f"rem_{e[0]}"))
-    kb.add(InlineKeyboardButton("🔙 Назад", callback_data="adm_back"))
+        kb.inline_keyboard.append([InlineKeyboardButton(text=f"{e[0]} - {e[1]}", callback_data=f"rem_{e[0]}")])
+    kb.inline_keyboard.append([InlineKeyboardButton(text="🔙 Назад", callback_data="adm_back")])
     
-    await call.message.edit_text("Выберите период:", reply_markup=kb)
-    await call.answer()
+    await callback.message.edit_text("Выберите период:", reply_markup=kb)
+    await callback.answer()
 
-@dp.callback_query_handler(lambda c: c.data.startswith('rem_'))
-async def remove_exception(call: types.CallbackQuery):
-    date_from = call.data.split('_')[1]
+@dp.callback_query(lambda c: c.data.startswith('rem_'))
+async def remove_exception(callback: types.CallbackQuery):
+    date_from = callback.data.split('_')[1]
     cursor.execute("DELETE FROM exceptions WHERE date_from = ?", (date_from,))
     conn.commit()
     
-    await call.message.edit_text("✅ Исключение удалено")
-    await call.answer()
+    await callback.message.edit_text("✅ Исключение удалено")
+    await callback.answer()
 
-@dp.callback_query_handler(lambda c: c.data == "adm_back")
-async def admin_back(call: types.CallbackQuery):
-    await call.message.edit_text("🔧 ПАНЕЛЬ АДМИНИСТРАТОРА", reply_markup=admin_keyboard())
-    await call.answer()
+@dp.callback_query(lambda c: c.data == "adm_back")
+async def admin_back(callback: types.CallbackQuery):
+    await callback.message.edit_text("🔧 ПАНЕЛЬ АДМИНИСТРАТОРА", reply_markup=admin_keyboard())
+    await callback.answer()
 
 # Команда отмены
-@dp.message_handler(commands=['cancel'], state='*')
-async def cancel_cmd(message: types.Message, state: FSMContext):
-    await state.finish()
+@dp.message(Command("cancel"))
+async def cmd_cancel(message: types.Message, state: FSMContext):
+    await state.clear()
     await message.answer("Действие отменено", reply_markup=main_keyboard())
 
 # ========== ЗАПУСК ==========
 
-async def on_startup(dp):
+async def on_startup():
     asyncio.create_task(reminder_check())
     print("✅ Планировщик напоминаний запущен")
+
+async def main():
+    await on_startup()
+    await dp.start_polling(bot)
 
 if __name__ == '__main__':
     print("🚀 БОТ ЗАПУСКАЕТСЯ...")
     print(f"👑 Администраторы: {ADMINS}")
     print(f"📁 База данных: {DB_PATH}")
-    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
+    asyncio.run(main())
